@@ -707,7 +707,7 @@ def int_jj1(jjn, t_end=DEFAULT_T_END, num_t=20001, atol=DEFAULT_ATOL,
     s_0 = np.zeros(4)
     t = np.linspace(0, t_end, num_t)
     V = ode.solve_ivp(fun=jj1, t_span=(0, t_end), y0=s_0, t_eval=t,
-                      args=(jjn,), rtol=rtol, atol=atol)
+                      args=(jjn,), rtol=rtol, atol=atol, method='DOP853')
     s = V.y
     f = np.zeros(len(t))
     s_f = np.zeros((len(t), 5))
@@ -1500,10 +1500,10 @@ def plot_to_file(jjn=JJN(), fname_base='jj_ap', t_start=0, t_end=2000, index=1,
 
 
 
-def vary_params(jjn, base_label='', vary_frac=0.1, N=100, t_end=1000,
-                print_progress=True, plot_title=False):
-    '''Randomly varies parameter values within specified ranges, calculates
-    JJN APs, and writes them to figure files.
+def vary_params(jjn, base_label='', vary_frac=0.1, vary_method='random_u',
+                N=100, t_end=1000, print_progress=True, plot_title=False):
+    '''Varies parameter values within specified ranges, calculates JJN APs,
+    and writes them to figure files.
     inputs:  jjn:  a JJN object.
              [base_label]:  string used as prefix for file names and
                graph titles.
@@ -1519,6 +1519,11 @@ def vary_params(jjn, base_label='', vary_frac=0.1, N=100, t_end=1000,
                'i_bias' and 'i_in' keys, the 'value' is a subdict whose
                keys are the parameters for that current object, with the
                'values' for those as for the JJN parameters.  (Default:  0.1)
+             [vary_method]:  string specifying how to vary the parameter
+               values.  'random_u' varies them randomly per a uniform
+               distribution over the range determined by vary_frac.
+               'sweep_u' sweeps them over N equally-spaced values over the
+               range determined by vary_frac.  (Default:  'random_u')
              [N]:  total number of randomized plots to generate (Default:  100)
              [t_end]:  end time for plots, which start at 0.  If this is a
                tuple, the first number is the start time.  (Default:  1000)
@@ -1527,14 +1532,14 @@ def vary_params(jjn, base_label='', vary_frac=0.1, N=100, t_end=1000,
              [plot_title]:  If True, the values of parameters that are
                *different* from the base ones in jjn will be shown in the
                figure titles.  (Default:  False)
-    output:  random values for the JJN and current parameters are chosen
-             within the ranges specified by vary_frac.  If a parameter
-             does not appear in vary_frac, it is kept constant at its
-             value in jjn, unless vary_frac is itself a float.  The JJN AP
-             is then calculated and written to an EPS file whose name is a
-             (lengthy) list of all the parameters and their values, with
-             base_label as the prefix.  Returns a list of the names of 
-             the figure files generated.
+    output:  values for the JJN and current parameters are chosen
+             within the ranges specified by vary_frac and by the method
+             specified by vary_method.  If a parameter does not appear in
+             vary_frac, it is kept constant at its value in jjn, unless
+             vary_frac is itself a float.  The JJN AP is then calculated and
+             written to an EPS file whose name is a (lengthy) list of all the
+             parameters and their values, with base_label as the prefix.
+             Returns a list of the names of the figure files generated.
     errors:  no error checking, so be careful to use valid values.'''
 
     fname_list = []
@@ -1544,6 +1549,9 @@ def vary_params(jjn, base_label='', vary_frac=0.1, N=100, t_end=1000,
     param_range = {}
     ib_param_range = {}
     iin_param_range = {}
+    dp = {}
+    dibp = {}
+    diinp = {}
     if type(vary_frac) is float:
         for param in JJN_Param_Names:
             param_val = param_base._asdict()[param]
@@ -1588,28 +1596,50 @@ def vary_params(jjn, base_label='', vary_frac=0.1, N=100, t_end=1000,
                                                         (1 + iinvf)))
                         else:
                             iin_param_range[iparam] = vary_frac[param][iparam]
+    if vary_method == 'sweep_u':
+        for param in param_range.keys():
+            dp[param] = ((param_range[param][1] - param_range[param][0])
+                         / (N - 1))
+        for ib_param in ib_param_range.keys():
+            dibp[ib_param] = ((ib_param_range[ib_param][1] -
+                               ib_param_range[ib_param][0]) / (N - 1))
+        for iin_param in iin_param_range.keys():
+            diinp[iin_param] = ((iin_param_range[iin_param][1] -
+                                 iin_param_range[iin_param][0]) / (N - 1))
     for n in range(N):
         point = param_base._asdict()
         ib_point = ib_param_base._asdict()
         iin_point = iin_param_base._asdict()
         ptitle=base_label + '.'
         for param in param_range.keys():
-            param_point_val = (param_range[param][0] + random.random() *
-                               (param_range[param][1] - param_range[param][0]))
+            if vary_method == 'random_u':
+                param_point_val = (param_range[param][0] + random.random() *
+                                   (param_range[param][1]
+                                    - param_range[param][0]))
+            elif vary_method == 'sweep_u':
+                param_point_val = param_range[param][0] + (n * dp[param])
             point[param] = param_point_val
             ptitle = ptitle + '%s=%g,' % (param, param_point_val)
         for ib_param in ib_param_range.keys():
-            ib_param_point_val = (ib_param_range[ib_param][0] +
-                                  (random.random() *
-                                   (ib_param_range[ib_param][1] -
-                                    ib_param_range[ib_param][0])))
+            if vary_method == 'random_u':
+                ib_param_point_val = (ib_param_range[ib_param][0] +
+                                      (random.random() *
+                                       (ib_param_range[ib_param][1] -
+                                        ib_param_range[ib_param][0])))
+            elif vary_method == 'sweep_u':
+                ib_param_point_val = (ib_param_range[ib_param][0]
+                                      + (n * dibp[ib_param])) 
             ib_point[ib_param] = ib_param_point_val
             ptitle = ptitle + '%s=%g,' % (ib_param, ib_param_point_val)
         for iin_param in iin_param_range.keys():
-            iin_param_point_val = (iin_param_range[iin_param][0] +
-                                   (random.random() *
-                                    (iin_param_range[iin_param][1] -
-                                     iin_param_range[iin_param][0])))
+            if vary_method == 'random_u':
+                iin_param_point_val = (iin_param_range[iin_param][0] +
+                                       (random.random() *
+                                        (iin_param_range[iin_param][1] -
+                                         iin_param_range[iin_param][0])))
+            elif vary_method == 'sweep_u':
+                iin_param_point_val = (iin_param_range[iin_param][0]
+                                       + (n * diinp[iin_param]))
             iin_point[iin_param] = iin_param_point_val
             ptitle = ptitle + '%s=%g,' % (iin_param, iin_param_point_val)
         fname_base = base_label + '.'
